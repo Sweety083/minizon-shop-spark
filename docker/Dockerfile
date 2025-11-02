@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-# Copy the entire project
+# Copy the rest of the source code
 COPY . .
 
 # Build the app
@@ -16,11 +16,15 @@ RUN npm run build
 # ---------- Stage 2: Serve using Nginx ----------
 FROM nginx:alpine
 
-# Copy the built files from builder stage
+# Copy the built app from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Expose port 80
+# Optional: Copy custom Nginx configuration if it exists
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+
+# Optional: Health check endpoint
+COPY public/health /usr/share/nginx/html/health
+
 EXPOSE 80
 
-# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
