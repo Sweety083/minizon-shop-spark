@@ -1,44 +1,68 @@
-# Docker Compose for local development
-version: '3.8'
+# ==============================
+# 🧩 Docker Compose for Local Development
+# ==============================
+version: "3.8"
 
 services:
   minizon-frontend:
+    container_name: minizon-frontend-dev
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: Dockerfile   # use root-level Dockerfile for consistency
     ports:
       - "3000:80"
     environment:
-      - NODE_ENV=production
+      NODE_ENV: development
     restart: unless-stopped
+    volumes:
+      # Optional: Live code reload (uncomment if needed)
+      # - ./src:/app/src
+      # - ./public:/app/public
+      # - ./vite.config.ts:/app/vite.config.ts:ro
+      # Helps skip rebuilds for small changes
+      - /app/node_modules
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-  # Optional: Add backend service when ready
+  # ==========================
+  # (Optional) Backend Service
+  # ==========================
   # minizon-backend:
-  #   image: minizon-backend:latest
+  #   container_name: minizon-backend
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
   #   ports:
   #     - "8080:8080"
   #   environment:
-  #     - DATABASE_URL=postgresql://user:password@db:5432/minizon
+  #     DATABASE_URL: postgresql://user:password@db:5432/minizon
   #   depends_on:
   #     - db
+  #   restart: unless-stopped
 
-  # Optional: Add database service
+  # ==========================
+  # (Optional) PostgreSQL Database
+  # ==========================
   # db:
+  #   container_name: minizon-db
   #   image: postgres:15-alpine
   #   environment:
-  #     - POSTGRES_DB=minizon
-  #     - POSTGRES_USER=user
-  #     - POSTGRES_PASSWORD=password
+  #     POSTGRES_DB: minizon
+  #     POSTGRES_USER: user
+  #     POSTGRES_PASSWORD: password
   #   volumes:
   #     - postgres_data:/var/lib/postgresql/data
   #   ports:
   #     - "5432:5432"
+  #   restart: unless-stopped
 
+# ==========================
+# Volumes
+# ==========================
 # volumes:
 #   postgres_data:
+
