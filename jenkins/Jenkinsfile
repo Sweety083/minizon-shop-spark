@@ -2,127 +2,54 @@ pipeline {
     agent any
 
     environment {
-        // ✅ Replace with your actual registry (e.g., docker.io/sweetyraj or ghcr.io/username)
-        DOCKER_REGISTRY = 'docker.io/sweetyraj'
-        IMAGE_NAME = 'minizon-shop-spark'
-        
-        // ✅ Use Jenkins credentials
-        KUBECONFIG_CRED = credentials('kubeconfig')
-        DOCKER_CRED = credentials('docker-credentials')
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-cred')
+        IMAGE_NAME = "sweetyraj22/minizon-frontend"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                echo "📦 Checking out source code..."
-                checkout scm
-            }
-        }
-
-        stage('Install Dependencies') {
-            steps {
-                echo "📥 Installing dependencies..."
-                sh 'npm ci'
-            }
-        }
-
-        stage('Lint') {
-            steps {
-                echo "🧹 Running lint checks..."
-                sh 'npm run lint || echo "Lint warnings detected, continuing..."'
-            }
-        }
-
-        stage('Build') {
-            steps {
-                echo "🏗️ Building production build..."
-                sh 'npm run build'
-            }
-        }
-
-        stage('Run Unit Tests') {
-            steps {
-                echo "🧪 Running tests..."
-                sh 'npm test -- --watchAll=false --coverage'
-            }
-            post {
-                always {
-                    junit 'test-results.xml'
-                    cobertura coberturaReportFile: 'coverage/cobertura-coverage.xml'
-                }
+                git branch: 'main', url: 'https://github.com/Sweety083/minizon-shop-spark.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "🐳 Building Docker image..."
-                    def image = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}")
-                    
-                    docker.withRegistry("https://${DOCKER_REGISTRY}", "${DOCKER_CRED}") {
-                        image.push()
-                        image.push("latest")
-                    }
+                    sh 'docker build -t $IMAGE_NAME:latest .'
                 }
             }
         }
 
-        stage('Security Scan') {
+        stage('Login to DockerHub') {
             steps {
-                echo "🔒 Scanning image with Trivy..."
-                sh 'docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || true'
+                script {
+                    sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                }
             }
         }
 
-        stage('Deploy to Staging') {
-            when {
-                branch 'develop'
-            }
+        stage('Push Image to DockerHub') {
             steps {
-                echo "🚀 Deploying to Staging environment..."
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
+                script {
+                    sh 'docker push $IMAGE_NAME:latest'
+                }
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+                sshagent(['ec2-ssh-key']) {
                     sh '''
-                        mkdir -p ~/.kube
-                        cp $KUBECONFIG_FILE ~/.kube/config
-                        kubectl config use-context staging
-                        kubectl set image deployment/minizon-frontend minizon-frontend=${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} -n minizon-staging
-                        kubectl rollout status deployment/minizon-frontend -n minizon-staging
+                    ssh -o StrictHostKeyChecking=no ec2-user@52.23.192.181 <<EOF
+                    docker pull sweetyraj22/minizon-frontend:latest
+                    docker stop minizon || true
+                    docker rm minizon || true
+                    docker run -d -p 80:80 --name minizon sweetyraj22/minizon-frontend:latest
+                    EOF
                     '''
                 }
             }
-        }
-
-        stage('Deploy to Production') {
-            when {
-                branch 'main'
-            }
-            steps {
-                echo "🚀 Deploying to Production environment..."
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG_FILE')]) {
-                    sh '''
-                        mkdir -p ~/.kube
-                        cp $KUBECONFIG_FILE ~/.kube/config
-                        kubectl config use-context production
-                        kubectl set image deployment/minizon-frontend minizon-frontend=${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} -n minizon
-                        kubectl rollout status deployment/minizon-frontend -n minizon
-                    '''
-                }
-            }
-        }
-    }
-
-    post {
-        always {
-            echo "🧹 Cleaning up workspace..."
-            cleanWs()
-        }
-        success {
-            echo "✅ Deployment successful!"
-            slackSend channel: '#deployments', message: "✅ *${env.JOB_NAME}* build *#${env.BUILD_NUMBER}* deployed successfully!"
-        }
-        failure {
-            echo "❌ Deployment failed!"
-            slackSend channel: '#deployments', message: "❌ *${env.JOB_NAME}* build *#${env.BUILD_NUMBER}* failed."
         }
     }
 }
